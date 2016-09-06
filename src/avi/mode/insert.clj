@@ -2,8 +2,8 @@
   (:require [packthread.core :refer :all]
             [packthread.lenses :as l]
             [avi.beep :as beep]
+            [avi.edit-context :as ec]
             [avi.editor :as e]
-            [avi.buffer :as b]
             [avi.pervasive :refer :all]))
 
 (defn enter-insert-mode
@@ -13,45 +13,45 @@
              :message [:white :black "--INSERT--"]
              :insert-mode-state {:count (or (:count spec) 1)
                                  :script (or script [])})
-      (in e/current-buffer
-          b/start-transaction)))
+      (in e/edit-context
+        ec/start-transaction)))
 
 (defn advance-for-append
-  [{[i j] :point, lines :lines :as buffer}]
-  (assoc buffer :point [i (min (count (get lines i)) (inc j))]))
+  [{[i j] :point, lines :lines :as edit-context}]
+  (assoc edit-context :point [i (min (count (get lines i)) (inc j))]))
 
 (defn move-to-eol
-  [{[i] :point, lines :lines :as buffer}]
-  (assoc buffer :point [i (count (get lines i))]))
+  [{[i] :point, lines :lines :as edit-context}]
+  (assoc edit-context :point [i (count (get lines i))]))
 
 (def mappings-which-enter-insert-mode
   {"a" ^:no-repeat (fn+> [editor spec]
                      (enter-insert-mode spec)
-                     (in e/current-buffer
+                     (in e/edit-context
                        advance-for-append))
 
    "i" ^:no-repeat (fn+> [editor spec]
                      (enter-insert-mode spec))
 
    "o" ^:no-repeat (fn+> [editor spec]
-                     (let [{:keys [lines] [i] :point} (e/current-buffer editor)
+                     (let [{:keys [lines] [i] :point} (e/edit-context editor)
                            eol (count (get lines i))]
                        (enter-insert-mode spec [[:keystroke "<Enter>"]])
-                       (in e/current-buffer
+                       (in e/edit-context
                            move-to-eol
-                           (b/change [i eol] [i eol] "\n" :right))))
+                           (ec/change [i eol] [i eol] "\n" :right))))
 
    "A" ^:no-repeat (fn+> [editor spec]
                      (enter-insert-mode spec)
-                     (in e/current-buffer
+                     (in e/edit-context
                          move-to-eol))
 
    "O" ^:no-repeat (fn+> [editor spec]
-                     (let [{[i] :point} (e/current-buffer editor)]
+                     (let [{[i] :point} (e/edit-context editor)]
                        (enter-insert-mode spec [[:keystroke "<Enter>"]])
-                       (in e/current-buffer
-                           (b/change [i 0] [i 0] "\n" :left)
-                           (b/operate {:operator :move-point
+                       (in e/edit-context
+                           (ec/change [i 0] [i 0] "\n" :left)
+                           (ec/operate {:operator :move-point
                                        :motion [:goto [i 0]]}))))})
 
 (defn- key->text
@@ -60,22 +60,22 @@
     "\n"
     key))
 
-(defn- update-buffer-for-insert-event
+(defn- update-edit-context-for-insert-event
   [editor [event-type event-data :as event]]
   (+> editor
     (if-not (= event-type :keystroke)
       beep/beep
-      (in e/current-buffer
+      (in e/edit-context
           (if (= event-data "<BS>")
-            (if (= [0 0] (:point (e/current-buffer editor)))
+            (if (= [0 0] (:point (e/edit-context editor)))
               beep/beep
-              b/backspace)
-            (b/insert-text (key->text event-data)))))))
+              ec/backspace)
+            (ec/insert-text (key->text event-data)))))))
 
 (defn- play-script
   [editor script]
   (reduce
-    update-buffer-for-insert-event
+    update-edit-context-for-insert-event
     editor
     script))
 
@@ -94,13 +94,13 @@
     (fn+> [editor]
       play-script-repeat-count-times
       (dissoc :insert-mode-state)
-      (let [b (e/current-buffer editor)
+      (let [b (e/edit-context editor)
             [i j] (:point b)
             new-j (max (dec j) 0)]
-        (in e/current-buffer
-            (b/operate {:operator :move-point
-                        :motion [:goto [i new-j]]})
-            b/commit))
+        (in e/edit-context
+          (ec/operate {:operator :move-point
+                       :motion [:goto [i new-j]]})
+          ec/commit))
       (e/enter-normal-mode))))
 
 (defn- wrap-record-event
@@ -110,7 +110,7 @@
     (update-in [:insert-mode-state :script] conj event)))
 
 (def responder
-  (-> update-buffer-for-insert-event
+  (-> update-edit-context-for-insert-event
       wrap-record-event
       wrap-handle-escape))
 

@@ -1,5 +1,6 @@
 (ns avi.t-normal-mode
   (:require [midje.sweet :refer :all] 
+            [avi.spec-runner :refer :all]
             [avi.test-helpers :refer :all]))
 
 (facts "regarding repeating commands"
@@ -129,7 +130,7 @@
                       ""])
       (editor :editing ten-lines :after "7j6k") => (point [0 0])))
   (facts "about `^E`"
-    (fact "`^E` scrolls the buffer down one line"
+    (fact "`^E` scrolls the lens down one line"
       (editor :editing ten-lines :after "<C-E>")
         => (terminal ["Two"
                       "Three"
@@ -146,7 +147,7 @@
     (fact "`^E` won't put the point past end-of-line"
       (editor :editing ten-lines :after "3G$3<C-E>") => (point [0 3])))
   (facts "about `^Y`"
-    (fact "`^Y` scrolls the buffer up one line"
+    (fact "`^Y` scrolls the lens up one line"
       (editor :editing ten-lines :after "<C-E><C-Y>")
         => (terminal ["One"
                       "Two"
@@ -189,7 +190,7 @@
       (editor :editing ten-lines :after "Gk<C-D>") => (point [5 0]))
     (fact "`^D` on last line beeps"
       (editor :editing ten-lines :after "G<C-D>") => beeped)
-    (fact "`^D` won't scroll when file is shorter than buffer viewport"
+    (fact "`^D` won't scroll when file is shorter than document viewport"
       (editor :after "<C-D>")
         => (terminal ["One"
                       "Two"
@@ -199,7 +200,7 @@
                       "~" :blue
                       "test.txt" :black :on :white
                       ""]))
-    (fact "`^D` won't move point past end-of-file when file is shorter than buffer viewport"
+    (fact "`^D` won't move point past end-of-file when file is shorter than document viewport"
       (editor :editing "One\nTwo" :after "<C-D>") => (point [1 0])))
 
   (facts "about `^U`"
@@ -232,9 +233,9 @@
 
 (facts "about navigating within the viewport"
   (facts "about `L`"
-    (fact "`L` moves to the last line when buffer has fewer lines than the buffer viewport"
+    (fact "`L` moves to the last line when document has fewer lines than the lens"
       (editor :editing "One\nTwo\nThree" :after "L") => (point [2 0]))
-    (fact "`L` moves to the last line on the buffer viewport when the file is longer"
+    (fact "`L` moves to the last line on the lens when the file is longer"
       (editor :editing ten-lines-indented :after "L") => (point [5 2])
       (editor :editing ten-lines :after "L")
         => (terminal ["One"
@@ -262,7 +263,7 @@
                       ""]))))
 
   (facts "about `H`"
-    (fact "`H` moves to the first line in the buffer viewport"
+    (fact "`H` moves to the first line in the lens"
       (editor :editing ten-lines-indented :after "G$H") => (point [0 2])
       (editor :editing ten-lines :after "GH")
         => (terminal ["Five"
@@ -273,13 +274,13 @@
                       "Ten"
                       "test.txt" :black :on :white
                       ""]))
-    (fact "`H` moves to the count line in the buffer viewport"
+    (fact "`H` moves to the count line in the lens"
       (editor :editing ten-lines :after "G3H") => (point [2 0]))
-    (fact "`H` will not move below the bottom of the buffer viewport"
+    (fact "`H` will not move below the bottom of the lens"
       (editor :editing ten-lines :after "11H") => (point [5 0]))
 
   (facts "about `M`"
-    (fact "`M` moves to the middle line of the viewport when buffer has more lines than the buffer viewport"
+    (fact "`M` moves to the middle line of the lens when document has more lines than the lens"
       (editor :editing ten-lines-indented :after "M") => (point [2 2])
       (editor :editing ten-lines :after "M")
         => (terminal ["One"
@@ -290,7 +291,7 @@
                       "Six"
                       "test.txt" :black :on :white
                       ""]))
-    (fact "`M` moves to the middle line of buffer text when buffer contains fewer lines than the buffer viewport"
+    (fact "`M` moves to the middle line of document text when document contains fewer lines than the lens"
       (editor :editing "One\nTwo\nThree" :after "M") => (point [1 0]))))
 
 (facts "about `gg`"
@@ -551,14 +552,21 @@
   "  \n\nw?t"     "E"    [2 2]
   "  \n hi"       "E"    [1 2])
 
-(tabular
-  (facts "about `b`"
-    (editor :editing ?content :after ?after) => (point ?pos))
-
-  ?content         ?after ?pos
+(facts-about "normal-mode `b`"
+  editing          after  point
   "hello world"    "$b"   [0 6]
   "a hello world"  "$bb"  [0 2]
   "a hello world"  "$2b"  [0 2]
   "a hello\nworld" "G$b"  [1 0]
   "a hello\nworld" "G$2b" [0 2]
   "a\n\nwhat"      "Gb"   [1 0])
+
+(tabular
+  (facts "about `iw`"
+    (editor :editing ?content :after ?after) => (point ?pos)
+    (editor :editing ?content :after ?after) => (contents ?content-after))
+
+  ?content        ?after  ?pos  ?content-after
+  "hello world"   "diw"   [0 0] " world"
+  "hello world"   "ldiw"  [0 0] " world"
+  "hello world"   "wdiw"  [0 5] "hello ")

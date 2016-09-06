@@ -1,5 +1,11 @@
 #include <jni.h>
+
+#define _XOPEN_SOURCE_EXTENDED
+#if defined(__APPLE__)
 #include <curses.h>
+#else
+#include <ncursesw/curses.h>
+#endif
 
 static const int TERMINAL_COLORS[] = {
 	COLOR_BLACK,
@@ -51,14 +57,32 @@ static jstring make_ctrl_key(JNIEnv *env, jchar ch)
 JNIEXPORT jstring JNICALL
 Java_avi_terminal_Terminal_getKey(JNIEnv *env, jclass k)
 {
-	jchar character = getch();
+	wint_t ch;
+	jchar character;
+	int rc;
 
-	if (is_enter_key(character)) 
+	rc = get_wch(&ch);
+	if (ERR == rc)
+		return (*env)->NewString(env, NULL, 0);
+
+	character = ch;
+
+	if ((KEY_CODE_YES == rc && ch == KEY_ENTER) ||
+	    (OK == rc && character == '\n'))
 		return (*env)->NewStringUTF(env, "<Enter>");
-	if (KEY_BACKSPACE == character || 127 == character)
+	if ((KEY_CODE_YES == rc && ch == KEY_BACKSPACE) ||
+	    (OK == rc && 127 == character))
 		return (*env)->NewStringUTF(env, "<BS>");
 	if (27 == character)
 		return (*env)->NewStringUTF(env, "<Esc>");
+	if (KEY_CODE_YES == rc && ch == KEY_UP)
+		return (*env)->NewStringUTF(env, "<Up>");
+	if (KEY_CODE_YES == rc && ch == KEY_DOWN)
+		return (*env)->NewStringUTF(env, "<Down>");
+	if (KEY_CODE_YES == rc && ch == KEY_RIGHT)
+		return (*env)->NewStringUTF(env, "<Right>");
+	if (KEY_CODE_YES == rc && ch == KEY_LEFT)
+		return (*env)->NewStringUTF(env, "<Left>");
 
 	if (character >= 0 && character < 0x20)
 		return make_ctrl_key(env, character);
@@ -69,7 +93,7 @@ Java_avi_terminal_Terminal_getKey(JNIEnv *env, jclass k)
 JNIEXPORT void JNICALL
 Java_avi_terminal_Terminal_refresh(JNIEnv *env, jclass k, jint cursorI, jint cursorJ, jint width, jcharArray charsArray, jbyteArray attrsArray)
 {
-	chtype ch;
+	cchar_t ch;
 	jint i, j, offset;
 	jsize size = (*env)->GetArrayLength(env, charsArray);
 	jchar *chars = (*env)->GetCharArrayElements(env, charsArray, NULL);
@@ -77,8 +101,10 @@ Java_avi_terminal_Terminal_refresh(JNIEnv *env, jclass k, jint cursorI, jint cur
 
 	for (i = 0, offset = 0; offset < size; ++i, offset += width) {
 		for (j = 0; j < width; ++j) {
-			ch = chars[offset+j] | COLOR_PAIR(attrs[offset+j]);
-			mvaddch(i, j, ch);
+			ch.attr = COLOR_PAIR(attrs[offset+j]);
+			ch.chars[0] = chars[offset+j];
+			ch.chars[1] = 0;
+			mvadd_wch(i, j, &ch);
 		}
 	}
 

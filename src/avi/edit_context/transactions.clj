@@ -1,19 +1,19 @@
-(ns avi.buffer.transactions
+(ns avi.edit-context.transactions
   (:require [avi.beep :as beep]
             [packthread.core :refer :all]))
 
 (defn start-transaction
   [{lines :lines,
     point :point,
-    :as buffer}]
-  (when (:in-transaction? buffer)
+    :as edit-context}]
+  (when (:in-transaction? edit-context)
     (throw (Exception. "attempt to nest a transaction")))
-  (+> buffer
+  (+> edit-context
     (update-in [:undo-log] conj {:lines lines, :point point})
     (assoc :in-transaction? true)))
 
 (defn commit
-  [buffer]
-  (+> buffer
+  [edit-context]
+  (+> edit-context
       (assoc :in-transaction? false
              :redo-log ())))

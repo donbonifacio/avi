@@ -1,15 +1,19 @@
 (ns avi.test-helpers
   (:import [java.io FileNotFoundException])
-  (:require [avi.color :as color]
+  (:require [midje.sweet :refer :all]
+            [avi.color :as color]
             [avi.core]
             [avi.editor :as e]
             [avi.events :as ev]
             [avi.main]
             [avi.world :refer :all]
             [avi.test-helpers properties]
+            [clojure.spec.test :as spec.test]
             [clojure.string :as string]
             [midje.checking.core :as checking]
             [potemkin :refer [import-vars]]))
+
+(spec.test/instrument)
 
 (import-vars [avi.test-helpers.properties
                 property])
@@ -140,7 +144,7 @@
   [expected]
   (fn [result]
     (checking/extended-=
-      (string/join "\n" (get-in result [:editor :buffer :lines]))
+      (string/join "\n" (:lines (e/edit-context (:editor result))))
       expected)))
 
 (defn attributes
@@ -174,5 +178,7 @@
 
 (defn viewport-size
   [expected-size]
-  (fn [{{{:keys [size]} :viewport} :editor}]
-    (checking/extended-= size expected-size)))
+  (fn [{{{:keys [width chars]} :rendition} :editor}]
+    (let [height (int (/ (count chars) width))
+          size [height width]]
+    (checking/extended-= size expected-size))))

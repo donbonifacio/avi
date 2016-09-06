@@ -3,8 +3,7 @@
             [packthread.core :refer :all]
             [packthread.lenses :as l]
             [avi.beep :as beep]
-            [avi.buffer :as b]
-            [avi.buffer
+            [avi.edit-context
              [lines :as lines]
              [locations :as loc]]
             [avi.editor :as e]))
@@ -23,8 +22,8 @@
 (def ^:private brackets (into #{} (concat (keys bracket-map) (vals bracket-map))))
 
 (defn- go-to-matching-bracket
-  [{[i j] :point lines :lines :as buffer}]
-  (+> buffer
+  [{[i j] :point lines :lines :as edit-context}]
+  (+> edit-context
     (let [bracket (get-in lines [i j])
           open-bracket? (open-brackets bracket)
           scan (if open-bracket?
@@ -58,5 +57,5 @@
 
 (def normal-commands
   {"%" (fn+> [editor _]
-         (in e/current-buffer
+         (in e/edit-context
            go-to-matching-bracket))})

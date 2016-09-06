@@ -1,9 +1,7 @@
-(ns avi.buffer
-  (:import [java.io FileNotFoundException])
+(ns avi.edit-context
   (:require [packthread.core :refer :all]
-            [clojure.string :as string]
             [avi.beep :as beep]
-            [avi.buffer
+            [avi.edit-context
               [change]
               [lines :as lines]
               [locations :as l]
@@ -13,59 +11,29 @@
             [avi.world :as w]
             [potemkin :refer [import-vars]]))
 
-(import-vars [avi.buffer.change
+(import-vars [avi.edit-context.change
                 adjust-viewport-to-contain-point
                 change]
-             [avi.buffer.operate
+             [avi.edit-context.operate
                 clamp-point-j
                 operate]
-             [avi.buffer.transactions
+             [avi.edit-context.transactions
                 start-transaction
                 commit])
 
-(defn- try-load
-  [filename]
-  (try
-    (lines/content (w/read-file w/*world* filename))
-    (catch FileNotFoundException e
-      [""])))
-
-(defn open
-  [filename height]
-  (let [lines (if filename
-                (try-load filename)
-                [""])]
-    {:name filename,
-     :viewport-top 0
-     :viewport-height height
-     :lines lines,
-     :point [0 0],
-     :last-explicit-j 0
-     :undo-log ()
-     :redo-log ()}))
-
-;; --
-
-(defn write
-  [{filename :name,
-    :keys [lines]
-    :as buffer}]
-  (w/write-file w/*world* filename (string/join "\n" lines))
-  buffer)
-
 (defn line
-  [buffer i]
-  (-> buffer :lines (get i)))
+  [edit-context i]
+  (-> edit-context :lines (get i)))
 
 (defn line-count
-  [buffer]
-  (-> buffer :lines count))
+  [edit-context]
+  (-> edit-context :lines count))
 
 (defn- adjust-point-to-viewport
   [{:keys [viewport-top viewport-height]
     [i] :point
-    :as buffer}]
-  (+> buffer
+    :as edit-context}]
+  (+> edit-context
     (let [viewport-bottom (dec (+ viewport-top viewport-height))]
       (cond
         (< i viewport-top)
@@ -76,30 +44,24 @@
         (operate {:operator :move-point
                   :motion [:goto [viewport-bottom]]})))))
 
-(defn resize
-  [buffer height]
-  (+> buffer
-      (assoc :viewport-height height)
-      (adjust-viewport-to-contain-point)))
-
 (defn scroll
-  [buffer scroll-fn]
-  (+> buffer
+  [edit-context scroll-fn]
+  (+> edit-context
       (update-in [:viewport-top] scroll-fn)
       (adjust-point-to-viewport)))
 
 (defn on-last-line?
-  [buffer]
-  (let [[i] (:point buffer)
-        line-count (line-count buffer)]
+  [edit-context]
+  (let [[i] (:point edit-context)
+        line-count (line-count edit-context)]
     (= i (dec line-count))))
 
 (defn- clamp-viewport-top
   [{top :viewport-top,
     height :viewport-height,
-    :as buffer}
+    :as edit-context}
    new-top]
-  (let [line-count (line-count buffer)
+  (let [line-count (line-count edit-context)
         max-top (max 0 (- line-count height))]
     (min max-top (max 0 new-top))))
 
@@ -107,9 +69,9 @@
   [{top :viewport-top,
     height :viewport-height,
     [i] :point,
-    :as buffer}
+    :as edit-context}
    which-way]
-  (+> buffer
+  (+> edit-context
       (let [distance (quot height 2)
             direction (case which-way
                         :down +1
@@ -117,7 +79,7 @@
             scroll-adjust (* direction distance)]
         (operate {:operator :move-point
                   :motion [:goto [(+ i scroll-adjust)]]})
-        (scroll (constantly (clamp-viewport-top buffer (+ top scroll-adjust)))))))
+        (scroll (constantly (clamp-viewport-top edit-context (+ top scroll-adjust)))))))
 
 ;; -- undo & redo --
 
@@ -127,20 +89,20 @@
    last-name
    {lines :lines,
     point :point,
-    :as buffer}]
-  (+> buffer
-    (if-not (seq (from-log buffer))
+    :as edit-context}]
+  (+> edit-context
+    (if-not (seq (from-log edit-context))
       (beep/beep (str "Already at the " last-name " change"))
       (do
         (update-in [to-log] conj {:lines lines, :point point})
-        (merge (first (from-log buffer)))
+        (merge (first (from-log edit-context)))
         (update-in [from-log] rest)
         adjust-viewport-to-contain-point))))
 
 (def undo (partial undo-or-redo :undo-log :redo-log "oldest"))
 (def redo (partial undo-or-redo :redo-log :undo-log "newest"))
 
-;; -- changing buffer contents --
+;; -- changing edit-context contents --
 
 (defn insert-text
   [{point :point, :as lines-and-text} text]
@@ -149,17 +111,17 @@
 (defn delete-current-line
   [{[i] :point,
     lines :lines,
-    :as buffer}]
-  {:pre [(:in-transaction? buffer)]}
-  (+> buffer
+    :as edit-context}]
+  {:pre [(:in-transaction? edit-context)]}
+  (+> edit-context
     (cond
-      (= 1 (line-count buffer))
+      (= 1 (line-count edit-context))
       (do
         (change [i 0] [i (count (get lines i))] "" :left)
         (operate {:operator :move-point
                   :motion [:goto [0 0]]}))
 
-      (= i (dec (line-count buffer)))
+      (= i (dec (line-count edit-context)))
       (do
         (change [(dec i) (count (get lines (dec i)))] [i (count (get lines i))] "" :left)
         (operate {:operator :move-point
@@ -174,8 +136,8 @@
 (defn backspace
   [{point :point,
     lines :lines,
-    :as buffer}]
-  {:pre [(:in-transaction? buffer)]}
-  (+> buffer
+    :as edit-context}]
+  {:pre [(:in-transaction? edit-context)]}
+  (+> edit-context
     (if-let [pre (l/retreat point (lines/line-length lines))]
       (change pre point "" :left))))

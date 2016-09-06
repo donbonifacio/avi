@@ -1,5 +1,5 @@
-(ns avi.buffer.t-lines
-  (:require [avi.buffer.lines :as lines]
+(ns avi.edit-context.t-lines
+  (:require [avi.edit-context.lines :as lines]
             [clojure.string :as string]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
@@ -7,10 +7,7 @@
             [com.gfredericks.test.chuck.properties :as prop']
             [midje.sweet :refer :all]
             [midje.checking.core :as checking]
-            [schema.core :as s]
             [avi.test-helpers :refer :all]))
-
-(s/set-fn-validation! true)
 
 (facts "about buffer contents"
   (fact "we can retrieve buffer contents' initial text"

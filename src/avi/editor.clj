@@ -1,19 +1,48 @@
 (ns avi.editor
   "Functions (including basse responders, middleware, and utilties) for
    manipulating the editor map."
-  (:require [packthread.core :refer :all]
+  (:import (java.io FileNotFoundException))
+  (:require [clojure.spec :as s]
+            [clojure.set :as set]
+            [packthread.core :refer :all]
             [packthread.lenses :as l]
             [avi.pervasive :refer :all]
             [avi.beep :as beep]
-            [avi.buffer :as b]))
+            [avi.edit-context :as ec]
+            [avi.edit-context
+              [lines :as lines]]
+            [avi.layout :as layout]
+            [avi.layout.panes :as p]
+            [avi.world :as w]))
+
+(s/def ::editor (s/merge ::p/editor))
 
 ;; -- Initial state ----------------------------------------------------------
+
+(defn- try-load
+  [filename]
+  (try
+    (lines/content (w/read-file w/*world* filename))
+    (catch FileNotFoundException e
+      [""])))
 
 (defn initial-editor
   [[lines columns] [filename]]
   {:mode :normal
-   :buffer (b/open filename (- lines 2))
-   :viewport {:size [lines columns]}
+   :documents [{:name filename,
+                :lines (if filename
+                         (try-load filename)
+                         [""])
+                :undo-log ()
+                :redo-log ()
+                :in-transaction? false}]
+   :lenses [{:document 0
+             :viewport-top 0
+             :point [0 0]
+             :last-explicit-j 0}]
+   ::p/tree {:avi.layout.panes/lens 0}
+   ::p/path []
+   ::layout/shape [[0 0] [lines columns]]
    :beep? false})
 
 ;; -- Building middlewares ---------------------------------------------------
@@ -26,17 +55,54 @@
         (a-fn editor)
         (handler editor event)))))
 
-;; -- Tracking the current buffer --------------------------------------------
+;; -- Tracking the current lens & document -----------------------------------
 
-(def current-buffer
-  "Read or update the current buffer.
-  
-  This is inteaded to be used with packthread's \"in\" macro, like so:
+(defn current-lens-path
+  [editor]
+  [:lenses (::p/lens (p/current-pane editor))])
 
-    (+> editor
-        (in e/current-buffer
-            (assoc :foo :bar)))"
-  (beep/add-beep-to-focus (l/under :buffer)))
+(defn current-lens
+  [editor]
+  (get-in editor (current-lens-path editor)))
+
+(defn current-document-path
+  [editor]
+  [:documents (:document (current-lens editor))])
+
+(s/fdef edit-context
+  :args (s/cat :editor ::editor
+               :new-context (s/? any?))
+  :ret ::editor)
+(let [document-keys #{:lines :undo-log :redo-log :in-transaction?}
+      computed-keys #{:viewport-height}
+      lens-keys #{:viewport-top :point :last-explicit-j}]
+  (def edit-context
+    "Perform some action in an \"edit context\".
+
+    An \"edit context\" is the minimal information from a document and a lens,
+    combined in such a way that a function can make edits to the file and move
+    the cursor and viewport.
+    
+    This is intended to be used with packthread's \"in\" macro, like so:
+
+      (+> editor
+        (in e/edit-context
+          (assoc :foo :bar)))"
+    (beep/add-beep-to-focus
+      (fn edit-context*
+        ([editor]
+         (merge
+           (-> editor
+               (get-in (current-document-path editor))
+               (select-keys document-keys))
+           (-> (current-lens editor)
+               (select-keys lens-keys))
+           (let [[_ [height _]] (::layout/shape (p/current-pane editor))]
+             {:viewport-height (dec height)})))
+        ([editor new-context]
+         (-> editor
+           (update-in (current-document-path editor) merge (select-keys new-context document-keys))
+           (update-in (current-lens-path editor) merge (select-keys new-context lens-keys))))))))
 
 ;; -- Modes ------------------------------------------------------------------
 
@@ -59,9 +125,9 @@
   (fn [editor [event-type size :as event]]
     (if (= event-type :resize)
       (+> editor
-          (assoc-in [:viewport :size] size)
-          (in current-buffer
-              (b/resize (- (first size) 2))))
+        (assoc-in [::layout/shape 1] size)
+        (in edit-context
+          ec/adjust-viewport-to-contain-point))
       (responder editor event))))
 
 ;; -- Exceptions and failures ------------------------------------------------
